@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Generative Studio</title>
+  </head>
+  <body>
+    <div id="studio">
+      <aside id="sidebar">
+        <div class="sidebar-head">
+          <span class="mark"></span>
+          <h1>Studio</h1>
+        </div>
+        <nav id="artwork-list"></nav>
+        <div class="sidebar-foot">
+          <span id="artwork-count"></span>
+        </div>
+      </aside>
+
+      <main id="main">
+        <header id="toolbar">
+          <div class="tb-group tb-identity">
+            <h2 id="artwork-title">—</h2>
+            <span id="engine-badge" class="badge">—</span>
+          </div>
+
+          <div class="tb-group tb-controls">
+            <label class="seed-field">
+              <span>seed</span>
+              <input id="seed-input" type="number" step="1" inputmode="numeric" />
+            </label>
+            <button id="seed-random" title="Random seed">random</button>
+            <button id="reload" title="Re-run the artwork with the current seed">reload</button>
+            <button id="playpause" title="Pause / play animation">pause</button>
+            <a id="clean-link" target="_blank" rel="noopener" title="Open the artwork alone, with no studio chrome">clean&nbsp;↗</a>
+          </div>
+        </header>
+
+        <div id="stage">
+          <div id="artwork-root"></div>
+        </div>
+
+        <div id="status"></div>
+      </main>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

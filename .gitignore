@@ -1,0 +1,21 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+.vite/
+
+# generated renders (keep the directory, not the PNGs)
+renders/*
+!renders/.gitkeep
+
+# local-only Claude config
+.claude/settings.local.json
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# logs
+*.log
+npm-debug.log*

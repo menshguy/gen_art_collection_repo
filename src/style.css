@@ -1,0 +1,274 @@
+/* Studio chrome. Deliberately quiet: neutral greys, small type, nothing that
+   competes with the artwork. None of this survives ?capture=1. */
+
+:root {
+  --bg: #131415;
+  --panel: #1a1c1e;
+  --line: #2a2d30;
+  --text: #d8d6d2;
+  --dim: #7d817f;
+  --accent: #c9a227;
+  --p5: #ed225d;
+  --three: #4a9fd8;
+  --stage: #0e0f10;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+}
+
+#studio {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  height: 100%;
+}
+
+/* ------------------------------ sidebar ------------------------------ */
+
+#sidebar {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.sidebar-head h1 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.mark {
+  width: 9px;
+  height: 9px;
+  background: var(--accent);
+  border-radius: 50%;
+}
+
+#artwork-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 0;
+}
+
+.group { margin-bottom: 14px; }
+
+.group-label {
+  padding: 4px 16px;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #5c605e;
+}
+
+.artwork-link {
+  display: block;
+  padding: 7px 16px;
+  text-decoration: none;
+  color: var(--text);
+  border-left: 2px solid transparent;
+}
+
+.artwork-link:hover { background: #202325; }
+
+.artwork-link.active {
+  background: #202325;
+  border-left-color: var(--accent);
+}
+
+.artwork-link .name { display: block; }
+
+.artwork-link .slug {
+  display: block;
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.sidebar-foot {
+  padding: 10px 16px;
+  border-top: 1px solid var(--line);
+  color: var(--dim);
+  font-size: 10px;
+}
+
+/* ------------------------------ main ------------------------------ */
+
+#main {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+#toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.tb-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#artwork-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.badge {
+  padding: 2px 7px;
+  border-radius: 3px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: #26292b;
+  color: var(--dim);
+}
+
+.badge[data-engine="p5"] { color: var(--p5); box-shadow: inset 0 0 0 1px currentColor; }
+.badge[data-engine="three"] { color: var(--three); box-shadow: inset 0 0 0 1px currentColor; }
+
+.seed-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dim);
+}
+
+#seed-input {
+  width: 96px;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: #101112;
+  color: var(--text);
+  font: inherit;
+}
+
+#toolbar button,
+#clean-link {
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: #101112;
+  color: var(--text);
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+#toolbar button:hover,
+#clean-link:hover { border-color: #3d4145; background: #17191b; }
+
+#toolbar button[hidden] { display: none; }
+
+/* ------------------------------ stage ------------------------------ */
+
+#stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  min-height: 0;
+  background: var(--stage);
+  overflow: hidden;
+}
+
+#artwork-root {
+  display: flex;
+  max-width: 100%;
+  max-height: 100%;
+  line-height: 0;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+}
+
+/* The canvas is always created at the artwork's real dimensions and scaled
+   down by CSS, so what you see in the studio is what `npm run render` writes. */
+#artwork-root canvas {
+  display: block;
+  width: auto !important;
+  height: auto !important;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+#pane-container {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 240px;
+  z-index: 10;
+}
+
+#pane-container[hidden] { display: none; }
+
+#status {
+  padding: 7px 16px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--dim);
+  font-size: 11px;
+  white-space: pre-wrap;
+}
+
+#status[data-kind="error"] { color: #e2725b; }
+
+/* ------------------------------ capture ------------------------------ */
+
+/* ?capture=1 — the artwork alone, at its intended size, on a clean ground. */
+body.capture {
+  background: #ffffff;
+  overflow: hidden;
+}
+
+body.capture #studio {
+  display: block;
+  height: auto;
+}
+
+body.capture #stage {
+  display: block;
+  padding: 0;
+  background: transparent;
+  overflow: visible;
+}
+
+body.capture #artwork-root {
+  display: block;
+  max-width: none;
+  max-height: none;
+  box-shadow: none;
+}
+
+body.capture #artwork-root canvas {
+  max-width: none;
+  max-height: none;
+}
+
+body.capture #pane-container { display: none; }
