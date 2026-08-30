@@ -6,7 +6,23 @@
       "Bash(npm run render:grid:*)",
       "Bash(npm run validate)",
       "Bash(npm run check)",
-      "Bash(npm run build)"
+      "Bash(npm run build)",
+      "Bash(npm run snapshot:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-/Users/jeff/Documents/00_Personal-Projects/gen_art_repo}/scripts/auto-snapshot-hook.mjs\"",
+            "timeout": 30,
+            "statusMessage": "Archiving current artwork version..."
+          }
+        ]
+      }
     ]
   }
 }

@@ -19,3 +19,9 @@ Thumbs.db
 # logs
 *.log
 npm-debug.log*
+
+# vendored CC0 assets (restore with `npm run assets`)
+public/assets/
+
+# auto-snapshot hook diagnostics
+.claude/auto-snapshot.log

@@ -67,6 +67,85 @@ function checkMeta(slug, meta) {
   return true;
 }
 
+/**
+ * Validate an artwork's archived versions.
+ *
+ * A broken snapshot is worse than no snapshot: the drawer offers it, the studio
+ * mounts it, and it fails at a point where nothing explains why. The archive
+ * contract is the same as an artwork's, plus contiguous numbering — the latest
+ * version number is derived as max(archived) + 1, so a gap silently renames
+ * every version above it.
+ */
+async function checkVersions(slug, dir) {
+  const versionsDir = path.join(dir, 'versions');
+  if (!(await exists(versionsDir))) return { archived: [], latest: 1 };
+
+  const entries = await fs.readdir(versionsDir, { withFileTypes: true });
+  const archived = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      warn(slug, `versions/${entry.name} is not a version directory — ignored`);
+      continue;
+    }
+    if (!/^v[1-9][0-9]*$/.test(entry.name)) {
+      fail(slug, `versions/${entry.name} must be named v1, v2, ... to be discoverable`);
+      continue;
+    }
+
+    const n = Number(entry.name.slice(1));
+    const vDir = path.join(versionsDir, entry.name);
+    const label = `v${n}`;
+
+    const metaPath = path.join(vDir, 'meta.js');
+    if (!(await exists(metaPath))) {
+      fail(slug, `${label} has no meta.js — run \`npm run snapshot\` rather than copying by hand`);
+      continue;
+    }
+
+    let vMeta;
+    try {
+      const mod = await import(pathToFileURL(metaPath).href);
+      vMeta = mod.default ?? mod;
+    } catch (err) {
+      fail(slug, `${label}/meta.js failed to import: ${err.message}`);
+      continue;
+    }
+
+    const file = ENGINES[vMeta.engine];
+    if (!file) {
+      fail(slug, `${label}/meta.js has an unknown engine ${JSON.stringify(vMeta.engine)}`);
+      continue;
+    }
+    if (!(await exists(path.join(vDir, file)))) {
+      fail(slug, `${label} declares engine "${vMeta.engine}" but has no ${file}`);
+      continue;
+    }
+    const source = await fs.readFile(path.join(vDir, file), 'utf8');
+    if (!/export\s+default/.test(source)) {
+      fail(slug, `${label}/${file} has no default export (the host cannot mount it)`);
+    }
+    if (!(await exists(path.join(vDir, 'version.json')))) {
+      warn(slug, `${label} has no version.json — the drawer will show it without a note or date`);
+    }
+
+    archived.push(n);
+  }
+
+  archived.sort((a, b) => a - b);
+  for (const [i, n] of archived.entries()) {
+    if (n !== i + 1) {
+      fail(
+        slug,
+        `version numbering has a gap at v${i + 1} (found ${archived.map((v) => `v${v}`).join(', ')})`
+      );
+      break;
+    }
+  }
+
+  return { archived, latest: archived.length ? Math.max(...archived) + 1 : 1 };
+}
+
 async function main() {
   if (!(await exists(ARTWORKS_DIR))) {
     console.error(`No src/artworks directory at ${ARTWORKS_DIR}`);
@@ -128,12 +207,16 @@ async function main() {
       }
     }
 
+    const versions = await checkVersions(slug, dir);
+
     rows.push({
       slug,
       engine: meta.engine,
       size: `${meta.width}x${meta.height}`,
       seed: meta.seed,
-      animated: meta.animated ? 'animated' : 'still'
+      animated: meta.animated ? 'animated' : 'still',
+      version: versions.latest,
+      history: versions.archived.length
     });
   }
 
@@ -144,7 +227,8 @@ async function main() {
   console.log(`\nArtworks (${rows.length}):`);
   for (const r of rows) {
     console.log(
-      `  ${r.slug.padEnd(22)} ${r.engine.padEnd(6)} ${r.size.padEnd(11)} seed ${String(r.seed).padEnd(9)} ${r.animated}`
+      `  ${r.slug.padEnd(22)} ${r.engine.padEnd(6)} ${r.size.padEnd(11)} seed ${String(r.seed).padEnd(9)} ` +
+        `${r.animated.padEnd(9)} v${r.version}${r.history ? ` (+${r.history} archived)` : ''}`
     );
   }
 

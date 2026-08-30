@@ -177,7 +177,7 @@ README.md                    this file
 index.html, vite.config.js   the dev shell
 
 .claude/
-  settings.json              small permission allowlist so renders don't prompt
+  settings.json              permission allowlist + the auto-snapshot hook
   rules/
     p5-artworks.md           loaded when Claude touches *.p5.js
     three-artworks.md        loaded when Claude touches *.three.js
@@ -198,13 +198,15 @@ src/
     palettes.js              constrained palettes and colour helpers
     export.js                in-browser PNG save
   artworks/
-    p5-example/              meta.js + sketch.p5.js
+    p5-example/              meta.js + sketch.p5.js  (always the latest version)
+      versions/v1/           frozen earlier versions + version.json
     three-example/           meta.js + scene.three.js
 
 references/<slug>/           reference images you want to keep
 renders/<slug>/              generated PNGs (git-ignored)
 examples/                    a library of past work worth learning from
-scripts/                     render, render:grid, validate
+scripts/                     render, render:grid, snapshot, validate
+  auto-snapshot-hook.mjs     archives an artwork before a session's first edit
 ```
 
 ---
@@ -257,6 +259,63 @@ teardown. Three artworks must release what they create in `dispose()`.
 The canvas is always created at the artwork's real dimensions and scaled down by CSS, so what
 you see in the browser is exactly what gets rendered to disk.
 
+### Versions
+
+An artwork is never overwritten by an edit. The files at the top of the directory are always the
+**latest version** — the one the studio selects by default and the one `npm run render` renders.
+Earlier versions are frozen alongside them:
+
+```
+src/artworks/flow-study/
+  meta.js                  <- latest version
+  sketch.p5.js             <- latest version
+  versions/
+    v1/  meta.js, sketch.p5.js, version.json
+    v2/  meta.js, sketch.p5.js, version.json
+```
+
+In the studio, an artwork with history grows a small **`n versions`** toggle under its sidebar
+item. Opening it lists every version newest-first — the latest marked `LATEST`, each with its
+note — and clicking one loads it. The drawer opens by itself whenever you are looking at
+something other than the latest, so the current selection is never hidden. The toolbar shows a
+version badge, highlighted when you are on an archived version rather than the current one.
+
+An archived version is a complete working copy, not a diff: it keeps its own `meta.js`, so
+opening v1 shows v1 at v1's size and seed, exactly as it was.
+
+**Making a new version — automatic.** A `PreToolUse` hook
+([scripts/auto-snapshot-hook.mjs](scripts/auto-snapshot-hook.mjs), wired up in
+`.claude/settings.json`) runs before every edit Claude makes. The first time a session touches an
+artwork, it archives that artwork's current files as a version, so the edit lands on a new latest
+version and the old one is already frozen. One snapshot per artwork per session — a dozen
+render-and-fix iterations produce one new version, not twelve.
+
+This is deliberately not a rule Claude has to remember. A rule that must be remembered eventually
+is not, and the cost of forgetting here is a version that no longer exists anywhere. The hook also
+fails closed: if archiving does not work, the edit is blocked rather than allowed to overwrite
+history, and it refuses edits to files under `versions/`, which are meant to be frozen.
+
+You can still snapshot by hand, and should when the hook cannot have fired — you edited artwork
+files with a shell command, or you want a version boundary in the middle of a session:
+
+```
+npm run snapshot -- flow-study --note "flat palette, single mass"
+```
+
+A note is worth adding either way: `meta.js` can carry `versionNote: '...'` describing the current
+version, which labels its drawer entry and becomes its permanent note when it is archived.
+
+The version number is derived, not stored: latest = highest archived + 1. That means you should
+never create or renumber `versions/` directories by hand — `npm run validate` fails on a gap,
+because a gap silently renumbers every version above it.
+
+`npm run snapshot -- --list` prints the full history of every artwork, and
+`npm run snapshot -- <slug> --list` just one.
+
+Old versions are reachable outside the studio too. `?art=<slug>&v=<n>` is a direct link, and
+`npm run render -- <slug> --version <n>` renders one — to `renders/<slug>/v<n>-seed-<n>.png`,
+never to `latest.png`, which always means the newest render of the newest version.
+
 ---
 
 ## J. Seeds
@@ -284,6 +343,9 @@ identically for a given seed.
 npm run render -- <artwork-slug>
 npm run render -- <artwork-slug> --seed 483928
 npm run render -- <artwork-slug> --out somewhere/else.png
+npm run render -- <artwork-slug> --aspect 16:9
+npm run render -- <artwork-slug> --width 2400 --height 1350
+npm run render -- <artwork-slug> --scale 0.5
 ```
 
 Output:
@@ -301,7 +363,30 @@ reported instead of silently producing a black square.
 **Claude is expected to open these PNGs and judge them.** That is the whole reason the command
 exists. If Claude describes a result without rendering it, tell it to render and look.
 
-Options: `--seed`, `--out`, `--timeout <ms>`, `--open`.
+Options: `--seed`, `--width`, `--height`, `--aspect`, `--scale`, `--out`, `--timeout <ms>`,
+`--open`.
+
+### Canvas size and aspect ratio
+
+`meta.js` gives an artwork its native size, and that stays the default. Any single render can be
+reframed without editing the piece:
+
+| Flag | Effect |
+| --- | --- |
+| `--width <px>` / `--height <px>` | Set one or both edges. Give one and the other follows the aspect (or the native ratio). |
+| `--aspect <r>` | `16:9`, `4:5`, `2/3`, `0.75`, or `square`, `portrait`, `landscape`, `wide`, `story`, `cinema`. On its own it reshapes at roughly the same pixel count, so render cost stays put. |
+| `--scale <f>` | Multiplies the final size — `0.5` for a quick look, `2` for print. |
+
+A reframed render lands in `renders/<slug>/seed-<n>@<w>x<h>.png` (and `latest.png`), so it never
+overwrites the native-size render of the same seed.
+
+The studio toolbar carries the same controls: an **aspect** dropdown, editable **size** fields,
+and **native** to go back. The choice travels in the URL as `?w=&h=`, so a reframed view can be
+shared, opened with `clean ↗`, or handed to `npm run render --width/--height` unchanged.
+
+Artworks lay out from `ctx.width` / `ctx.height`, so this reframes the composition rather than
+cropping it. If a piece falls apart at a different shape, that is worth knowing — fix the
+composition, and once a shape is settled, write it into `meta.js`.
 
 ---
 
@@ -311,7 +396,11 @@ Options: `--seed`, `--out`, `--timeout <ms>`, `--open`.
 npm run render:grid -- <artwork-slug> --count 12
 npm run render:grid -- <artwork-slug> --count 12 --base 500
 npm run render:grid -- <artwork-slug> --seeds 12,99,4821
+npm run render:grid -- <artwork-slug> --count 12 --scale 0.5
 ```
+
+`--width`, `--height`, `--aspect` and `--scale` work here too. `--scale 0.5` is the fast way to
+read a sheet: a quarter of the pixels per tile, and the tiles are shown at 420px wide anyway.
 
 Output:
 
@@ -437,8 +526,12 @@ mechanism.
 | `npm run preview` | Serve the production build |
 | `npm run render -- <slug>` | Render one artwork to `renders/<slug>/latest.png` |
 | `npm run render -- <slug> --seed <n>` | Render a specific seed |
+| `npm run render -- <slug> --aspect 16:9` | Render at another shape (`--width`, `--height`, `--scale`) |
 | `npm run render:grid -- <slug> --count 12` | Render many seeds + a contact sheet |
-| `npm run validate` | Check every artwork's metadata and files |
+| `npm run snapshot -- <slug> --note "..."` | Freeze the current version by hand (normally automatic) |
+| `npm run snapshot -- <slug> --list` | Show an artwork's version history (omit the slug for all) |
+| `npm run render -- <slug> --version 2` | Render an archived version instead of the latest |
+| `npm run validate` | Check every artwork's metadata, files and versions |
 | `npm run check` | `validate` + production build |
 | `npm run setup:browser` | Install Playwright's Chromium |
 | `npm run render -- --help` | Full flag list (same for `render:grid`) |

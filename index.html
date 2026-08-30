@@ -23,6 +23,7 @@
           <div class="tb-group tb-identity">
             <h2 id="artwork-title">—</h2>
             <span id="engine-badge" class="badge">—</span>
+            <span id="version-badge" class="badge version" title="Version">—</span>
           </div>
 
           <div class="tb-group tb-controls">
@@ -34,6 +35,20 @@
             <button id="reload" title="Re-run the artwork with the current seed">reload</button>
             <button id="playpause" title="Pause / play animation">pause</button>
             <a id="clean-link" target="_blank" rel="noopener" title="Open the artwork alone, with no studio chrome">clean&nbsp;↗</a>
+          </div>
+
+          <div class="tb-group tb-size">
+            <label class="size-field">
+              <span>aspect</span>
+              <select id="aspect-select" title="Reshape the canvas at roughly the same pixel count"></select>
+            </label>
+            <label class="size-field">
+              <span>size</span>
+              <input id="width-input" type="number" step="10" min="64" max="8000" inputmode="numeric" title="Canvas width in pixels" />
+            </label>
+            <span class="size-x">x</span>
+            <input id="height-input" type="number" step="10" min="64" max="8000" inputmode="numeric" title="Canvas height in pixels" />
+            <button id="size-reset" title="Back to the size in meta.js">native</button>
           </div>
         </header>
 

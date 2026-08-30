@@ -17,12 +17,14 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
-  findArtwork,
+  findArtworkVersion,
+  applySizeArgs,
   startStudio,
   launchBrowser,
   captureArtwork,
   parseArgs
 } from './render-artwork.mjs';
+import { formatSize } from '../src/shared/canvas-size.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const RENDERS_DIR = path.join(ROOT, 'renders');
@@ -94,13 +96,21 @@ Options:
   --count <n>    How many seeds to render (default 12)
   --base <n>     First seed (default: the artwork's meta.seed)
   --seeds a,b,c  Render exactly these seeds instead of a run
+  --version <n>  Grid an archived version instead of the latest one
+  --width <px>   Override the canvas width
+  --height <px>  Override the canvas height
+  --aspect <r>   Reshape at the same pixel count (16:9, 4:5, square, ...)
+  --scale <f>    Multiply the final size — --scale 0.5 halves grid render time
   --no-sheet     Skip the contact sheet, keep the individual PNGs
   --timeout <ms> Per-render readiness timeout (default 60000)
 `);
     process.exit(args.help || slug ? 0 : 1);
   }
 
-  const artwork = await findArtwork(slug);
+  const artwork = applySizeArgs(
+    await findArtworkVersion(slug, args.version === true ? undefined : args.version),
+    args
+  );
   const base = args.base !== undefined ? Number(args.base) : artwork.seed;
   const count = args.count !== undefined ? Number(args.count) : 12;
   const seeds = args.seeds
@@ -110,7 +120,11 @@ Options:
   if (seeds.some((s) => !Number.isFinite(s))) throw new Error('Seeds must be numbers.');
 
   const timeout = args.timeout ? Number(args.timeout) : 60_000;
-  const gridDir = path.join(RENDERS_DIR, artwork.slug, 'grid');
+  const gridDir = path.join(
+    RENDERS_DIR,
+    artwork.slug,
+    artwork.isLatest ? 'grid' : `grid-v${artwork.version}`
+  );
   await fs.rm(gridDir, { recursive: true, force: true });
   await fs.mkdir(gridDir, { recursive: true });
 
@@ -119,7 +133,10 @@ Options:
   const rel = (p) => path.relative(ROOT, p);
 
   try {
-    console.log(`Rendering ${seeds.length} seeds of ${artwork.slug} (${artwork.engine}) ...`);
+    console.log(
+      `Rendering ${seeds.length} seeds of ${artwork.slug} v${artwork.version}` +
+        ` (${artwork.engine}) at ${formatSize(artwork.size)} ...`
+    );
     const tiles = [];
     for (const [i, seed] of seeds.entries()) {
       const outPath = path.join(gridDir, `seed-${seed}.png`);
@@ -132,11 +149,17 @@ Options:
     console.log(`  -> ${rel(gridDir)}/`);
 
     if (!args['no-sheet']) {
-      const sheetPath = path.join(RENDERS_DIR, artwork.slug, 'contact-sheet.png');
+      const sheetPath = path.join(
+        RENDERS_DIR,
+        artwork.slug,
+        artwork.isLatest ? 'contact-sheet.png' : `contact-sheet-v${artwork.version}.png`
+      );
       await composeSheet({
         browser,
         tiles,
-        title: `${artwork.title} — ${seeds.length} seeds (${seeds[0]}–${seeds.at(-1)})`,
+        title:
+          `${artwork.title} v${artwork.version} — ${seeds.length} seeds (${seeds[0]}–${seeds.at(-1)})` +
+          (artwork.size.overridden ? ` · ${formatSize(artwork.size)}` : ''),
         outPath: sheetPath
       });
       const buf = await fs.readFile(sheetPath);

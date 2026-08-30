@@ -11,8 +11,11 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "assets": "node scripts/fetch-assets.mjs",
     "render": "node scripts/render-artwork.mjs",
     "render:grid": "node scripts/render-grid.mjs",
+    "figures": "node scripts/preview-figures.mjs",
+    "snapshot": "node scripts/snapshot-artwork.mjs",
     "validate": "node scripts/validate-artworks.mjs",
     "check": "npm run validate && npm run build",
     "setup:browser": "playwright install chromium"

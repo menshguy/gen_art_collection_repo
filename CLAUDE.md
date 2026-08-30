@@ -33,7 +33,8 @@ user did not specify one.
 - One artwork = one engine. A p5 piece has `sketch.p5.js`; a Three piece has `scene.three.js`.
   Never both in one directory.
 - A new idea is a **new artwork directory**, not an edit to an existing one. Only revise an
-  existing artwork when the user asks for that artwork to change.
+  existing artwork when the user asks for that artwork to change — its previous version is
+  archived automatically when you do (see Versions).
 - Converting a piece between engines creates a new artwork and leaves the original untouched.
 - Never modify unrelated artwork directories.
 
@@ -44,6 +45,58 @@ export default { title: 'Flow Study', engine: 'p5', seed: 483928, width: 1200, h
 ```
 
 Artworks are discovered automatically. There is no registry to edit.
+
+## Versions
+
+Every artwork keeps its history, and none of it is destroyed by an edit.
+
+The files at the top of `src/artworks/<slug>/` are **always the latest version**. That is what
+the studio loads by default, what `npm run render` renders, and what `latest.png` holds. Earlier
+versions live frozen under `src/artworks/<slug>/versions/v<n>/` and stay selectable in an
+expandable drawer beneath that artwork's item in the Studio sidebar, or directly at
+`?art=<slug>&v=<n>`.
+
+**This is automatic. You do not have to remember it.**
+
+A `PreToolUse` hook (`scripts/auto-snapshot-hook.mjs`, wired up in `.claude/settings.json`) runs
+before every Edit and Write. The first time a session touches a given artwork, it archives that
+artwork's current files as a version — so the edit you are about to make lands on a new latest
+version and the old one is already safe. You will see a note in context saying what was archived.
+
+Consequences, all of which matter:
+
+- **Never run `npm run snapshot` for an artwork the hook has already archived this session.** The
+  hook tells you when it has. Doing it again stacks a duplicate version. Iterate as much as the
+  piece needs; the render–critique–fix loop stays inside the one new version.
+- **You cannot lose a version by forgetting.** The old failure mode — edit first, snapshot after,
+  destroy the original — is now unreachable through Edit/Write.
+- **The hook fails closed.** If archiving fails, your edit is blocked rather than allowed to
+  overwrite history. Fix the cause or snapshot manually; do not work around it.
+- **Files under `versions/` are frozen** and the hook refuses to edit them. Edit the working files
+  at the top of the artwork directory — those are the latest version.
+
+**Check the safety net is actually live** with `npm run snapshot -- --doctor`. It reports whether
+the hook is wired up, whether its command path resolves, and — decisively — whether it has ever
+actually run. Run it if you are ever unsure, and whenever an artwork's drawer looks emptier than
+it should. A hook that is configured but not firing looks exactly like a hook that is working,
+which is how this failed silently before; the doctor is what tells the two apart.
+
+Run `npm run snapshot -- <slug> --note "..."` by hand only when the hook cannot have fired: you
+changed artwork files with a shell command rather than Edit/Write, or you want a version boundary
+mid-session (finishing one distinct update and starting another). Check `npm run snapshot --
+<slug> --list` if you are unsure what state you are in.
+
+- A **new artwork** is not archived. It starts life as v1 with no `versions/` directory.
+- Versions are one artwork evolving. A new idea is still a new artwork directory — see
+  Separation. Never stack unrelated pieces under one slug as versions.
+- The version number is derived from the archive — latest = highest archived + 1 — and is never
+  written by hand. Do not create, renumber or delete `versions/` directories yourself;
+  `npm run validate` fails on a gap because a gap silently renames every version above it.
+- A snapshot copies the whole artwork directory and re-bases the import paths that climb out of
+  it, so an archived version runs precisely as it did.
+- `meta.js` may carry `versionNote: '...'` describing the current version. It labels the latest
+  entry in the drawer, and becomes that version's note when it is archived — so writing one
+  *before* you finish an update is how an auto-archived version gets a meaningful label.
 
 ## The mandatory visual loop
 
@@ -130,12 +183,31 @@ visually strong. Seeds come from the studio (`ctx.seed`, `?seed=`, `--seed`) —
 | --- | --- |
 | `npm run dev` | studio at http://localhost:5173 |
 | `npm run render -- <slug> [--seed n]` | PNG to `renders/<slug>/latest.png` |
+| `npm run render -- <slug> --aspect 16:9` | reframe one render (`--width`, `--height`, `--aspect`, `--scale`) |
 | `npm run render:grid -- <slug> --count 12` | many seeds + `contact-sheet.png` |
+| `npm run snapshot -- <slug> --note "..."` | freeze the current version by hand — normally automatic, see Versions |
+| `npm run snapshot -- <slug> --list` | show an artwork's version history |
+| `npm run snapshot -- --doctor` | check the auto-snapshot hook is wired up **and firing** |
+| `npm run render -- <slug> --version 2` | render an archived version (never overwrites `latest.png`) |
 | `npm run validate` | check every artwork's contract |
 | `npm run check` | validate + production build |
 
 `npm run render` starts its own server; you never need `npm run dev` running first, and you
 should not ask the user to open a browser for you.
+
+## Canvas size
+
+`meta.js` holds an artwork's native size. It can be overridden per render without touching the
+artwork — `--width`, `--height`, `--scale`, and `--aspect` (`16:9`, `4:5`, `0.75`, or `square`,
+`portrait`, `landscape`, `wide`, `story`, `cinema`). `--aspect` alone reshapes at roughly the
+same pixel count. The same controls sit in the studio toolbar and travel in the URL as `?w=&h=`.
+
+Reframed renders are written to `renders/<slug>/seed-<n>@<w>x<h>.png`, so they never overwrite
+the native-size render of that seed.
+
+Every artwork must lay out from `ctx.width` / `ctx.height`. A composition that only holds
+together at one shape is a composition to fix, not a size to avoid — and when a different shape
+is genuinely the right one, put it in `meta.js` rather than passing the flag forever.
 
 ## Skills and rules
 
@@ -143,5 +215,7 @@ should not ask the user to open a browser for you.
 - `genart` (external plugin, if installed) — generative-art practice, determinism, editions.
 - `.claude/rules/p5-artworks.md` and `.claude/rules/three-artworks.md` load automatically when
   you touch artwork files of that engine.
+- `.claude/settings.json` wires the auto-snapshot hook. If it is ever removed, artwork history
+  goes back to depending on someone remembering — put it back rather than working without it.
 - `examples/` holds saved patterns worth learning from. Read them for technique; never copy a
   composition.

@@ -14,8 +14,9 @@
  *      give the pitch its hard curved edge;
  *   4. steering agents on the grass, free to run out of frame.
  *
- * Jump phase comes from a low-frequency field, so neighbours rise together
- * and the crowd boils in waves instead of every seat firing independently.
+ * Every seat jumps on its own phase and its own rate. Coherence is a property
+ * of the moment, not of position: ordinary cheering is incoherent, and a goal
+ * pulls one support — only the one that scored — onto a common beat.
  */
 
 import { createRandom } from '../../shared/random.js';
@@ -436,20 +437,25 @@ export default function sketch(p, ctx) {
   // that never existed as far as the picture is concerned.
   const SPLIT_ANGLE = 2.5 + rng.jitter(1.4);
 
-  /** 0 = the second team's end, 1 = the first team's. */
-  function allegiance(px, pz, d) {
+  /**
+   * Signed allegiance. Positive is the first team's ground, negative the
+   * second's. Two things read it: what a seat *wears*, blended across the seam
+   * by how segregated this house is, and who a seat *supports*, which is a
+   * hard question with no in-between.
+   */
+  function allegianceField(px, pz, d) {
     // The proportion moves the seam around the bowl instead of diluting either
     // mass, so a small travelling support gets a small wedge and the rest of
     // the ground is the other lot.
     const bias = (CROWD.mix - 0.5) * 2.6;
     const patch =
       noise.fbm2D(px * 0.016, pz * 0.016 + d * 0.02, { octaves: 4 }) * lerp(1.15, 0.14, CROWD.seg);
-    const v = Math.cos(Math.atan2(pz, px) - SPLIT_ANGLE) + bias + patch;
-    // Segregation sets how crisp the seam is. Supporters sit with their own,
-    // so a split house wants a hard edge and a neutral one wants none.
-    const soft = lerp(1.4, 0.1, CROWD.seg);
-    return clamp(smoothstep(-soft, soft, v));
+    return Math.cos(Math.atan2(pz, px) - SPLIT_ANGLE) + bias + patch;
   }
+
+  // Segregation sets how crisp the seam is. Supporters sit with their own,
+  // so a split house wants a hard edge and a neutral one wants none.
+  const SEAM_SOFT = lerp(1.4, 0.1, CROWD.seg);
 
   /* ------------------------------ seat build ---------------------------- */
 
@@ -470,7 +476,16 @@ export default function sketch(p, ctx) {
   const SW = [];
   const SH = [];
   const SPHASE = [];
+  const SRATE = [];
   const SAMP = [];
+  const SGATE = [];
+  const SFAN = [];
+  let LIFT = new Float32Array(0);
+  let FAN = new Uint8Array(0);
+  // Seats held by each support, counted rather than assumed: the majority is
+  // the whole basis of who gets to score.
+  const FAN_COUNT = [0, 0];
+  let SUPPORT = 0;
 
   function buildSeats() {
     const margin = 60;
@@ -503,12 +518,27 @@ export default function sketch(p, ctx) {
               const jitterLit = clamp(lerp(0.06, 0.74, lit) + grain * lerp(0.14, 0.24, lit));
               const level = Math.min(LEVELS - 1, Math.round(jitterLit * (LEVELS - 1)));
 
-              const a = allegiance(pl.x, pl.z, d);
+              const alleg = allegianceField(pl.x, pl.z, d);
+              const a = clamp(smoothstep(-SEAM_SOFT, SEAM_SOFT, alleg));
               for (let g = 0; g < GARMENTS.length; g++) GWEIGHT[g] = lerp(AWAY[g], HOME[g], a);
               const garment = pickGarment(GWEIGHT);
 
-              // Jump phase is field-driven: neighbours rise together.
-              const wave = noise.fbm2D(pl.x * 0.035, pl.z * 0.035 + rf * 1.1, { octaves: 2 });
+              // Who the seat supports: the same field, thresholded instead of
+              // blended, with a ragged seam so the two masses interlock where
+              // they meet. Deliberately not read off the shirt — a coat is not
+              // an allegiance, and a house in its own clothes still has to be
+              // able to erupt as one body rather than as a speckle.
+              const fan = alleg + rng.jitter(0.22) >= 0 ? 0 : 1;
+              FAN_COUNT[fan]++;
+
+              // Jump phase is individual, with only a slight local drag. A
+              // stand is ten thousand people each on their own count; a smooth
+              // phase field across the seating reads instantly as a Mexican
+              // wave, which is the one crowd behaviour that never happens
+              // unless a crowd organises it. So the field is capped well under
+              // a full cycle and can never close one across a block: mates
+              // lean together, no front travels through the stand.
+              const drag = noise.fbm2D(pl.x * 0.14, pl.z * 0.14 + rf * 0.6, { octaves: 2 });
               const heat = clamp(
                 0.35 + 0.9 * (noise.fbm2D(pl.x * 0.012 + 11, pl.z * 0.012 - 4, { octaves: 2 }) * 0.5 + 0.5)
               );
@@ -518,8 +548,17 @@ export default function sketch(p, ctx) {
               SY.push(pr.y);
               SW.push(clamp(0.44 * pr.s, 1, 7));
               SH.push(clamp(0.66 * pr.s, 1.2, 10));
-              SPHASE.push(wave * TAU * 2.2 + rng.jitter(0.55));
-              SAMP.push(heat * (0.30 + rng.skew(1.4) * 0.40) * pr.s);
+              SPHASE.push(rng.range(0, TAU) + drag * 1.2);
+              // Nobody holds a beat exactly. Slightly different rates mean two
+              // neighbours who happen to start together drift apart within a
+              // few jumps instead of locking into a pattern.
+              SRATE.push(0.86 + rng.skew(1.2) * 0.3);
+              SAMP.push((0.19 + rng.skew(1.4) * 0.25) * pr.s);
+              // How loud it has to get before this seat is on its feet. Most
+              // of the bowl clears the ordinary-play threshold and bounces all
+              // match; the last holdouts only get up for a goal.
+              SGATE.push(clamp((1 - heat) * 0.55 + rng() * 0.30));
+              SFAN.push(fan);
 
               const slot = Math.min(BANDS - 1, Math.floor(clamp(pr.z / 230) * BANDS));
               const band = bands[k * BANDS + slot];
@@ -590,70 +629,265 @@ export default function sketch(p, ctx) {
   for (const k of [TEAM_A, TEAM_B, KEEPER]) KITS.set(k, { sun: litKit(k), shade: darkKit(k) });
   const BALL_C = { sun: shade('#fbfcf6', 1), shade: shade('#fbfcf6', SHADE_T) };
 
+  const GOAL_HALF_W = 3.66;
+
+  // The camera stands beyond one goal line and looks down the pitch, so only
+  // the goal at -x is in frame; the far one sits off the right edge entirely.
+  // The side attacking -x is therefore the only side whose goals can be seen,
+  // and that side is handed to whichever support fills the bowl — the noise
+  // and the net have to be the same event, or the eruption has nothing to
+  // point at.
+  const VISIBLE_GOAL = -1; // the goal this camera can see
+  const SCORING_SIDE = -VISIBLE_GOAL; // defends +x, attacks the visible goal
+
+  let match = null;
+
   function buildPlayers() {
     players = [];
-    // Formations pressed toward the visible goal so the action stays in frame
-    // and players spill off the edges rather than milling in the middle.
-    const shapeA = [
-      [-46, 0], [-34, -16], [-34, 16], [-30, -6], [-30, 7],
-      [-16, -22], [-14, 2], [-12, 20], [2, -10], [4, 12], [16, 0]
+    // Home positions for the side defending -x; team B is the mirror. Keepers
+    // are separate because they do not chase — see keeperTarget.
+    const outfield = [
+      [-34, -17], [-33, -6], [-33, 6], [-34, 17],
+      [-18, -22], [-16, -7], [-16, 7], [-18, 22],
+      [-3, -11], [-3, 11]
     ];
-    const shapeB = [
-      [26, 2], [-6, -19], [-8, 0], [-6, 18], [-20, -12],
-      [-22, 8], [-30, -20], [-32, 0], [-33, 18], [-42, -8], [-42, 9]
-    ];
-    const push = (shape, kit, isKeeper) => {
-      shape.forEach(([hx, hz], i) => {
-        players.push({
-          home: { x: hx, z: hz },
-          x: hx + rng.jitter(3),
-          z: hz + rng.jitter(3),
-          vx: 0,
-          vz: 0,
-          kit: isKeeper && i === 0 ? KEEPER : kit,
-          phase: rng.range(0, TAU),
-          pull: 0.16 + rng.skew(1.6) * 0.5,
-          top: 6.4 + rng.range(0, 2.2),
-          wander: rng.range(0, 100)
-        });
-      });
+    const mk = (hx, hz, kit, side, keeper) => ({
+      home: { x: hx, z: hz },
+      x: hx + rng.jitter(3),
+      z: hz + rng.jitter(3),
+      vx: 0,
+      vz: 0,
+      speed: 0,
+      kit,
+      side,
+      keeper,
+      phase: rng.range(0, TAU),
+      pull: keeper ? 0 : 0.18 + rng.skew(1.6) * 0.55,
+      top: keeper ? 4.8 : 6.4 + rng.range(0, 2.4),
+      wander: rng.range(0, 100)
+    });
+    const KIT_OF = [TEAM_A, TEAM_B];
+    for (const side of [-1, 1]) {
+      const kit = KIT_OF[side === SCORING_SIDE ? SUPPORT : 1 - SUPPORT];
+      players.push(mk(side * (PITCH_HALF_X - 2.5), 0, KEEPER, side, true));
+      for (const [hx, hz] of outfield) players.push(mk(-side * hx, -side * hz, kit, side, false));
+    }
+
+    ball = { x: 0, z: 0, tx: -18, tz: 6, speed: 14, shot: false, onTarget: false, attack: -1 };
+    match = {
+      mode: 'play',
+      timer: 0,
+      nextShot: rng.range(6, 15),
+      celebrateFor: 0,
+      celebrateTotal: 1,
+      scorer: SCORING_SIDE,
+      scorerTeam: SUPPORT,
+      rally: { x: 0, z: 0 },
+      excite: 0.48,
+      // One number per support, not one for the ground.
+      excites: [0.48, 0.48],
+      jumpPhase: 0
     };
-    push(shapeA, TEAM_A, true);
-    push(shapeB, TEAM_B, true);
-    ball = { x: -22, z: 4, tx: -30, tz: -6, speed: 15 };
+    pickBallTarget();
   }
 
-  function stepPlay(dt, t) {
-    // Ball darts between targets biased toward the visible penalty area.
+  /**
+   * Where a keeper wants to stand, given where the ball is. Expressed along
+   * his own axis, so -PITCH_HALF_X is his goal line whichever end he defends.
+   */
+  function keeperTarget(k) {
+    // Ball position along his own axis, so -PITCH_HALF_X is *his* goal line
+    // whichever end he defends. (k.side * ball.x gets this backwards.)
+    const bx = -k.side * ball.x;
+    const quarter = PITCH_HALF_X * 0.5; // the final quarter of the field
+    let depth;
+    let top;
+    if (bx < -quarter) {
+      depth = 1.6; // ball in his final quarter: stay on the line
+      top = 5.4;
+    } else if (bx < 0) {
+      // Between midfield and that quarter: out to the six-yard box.
+      depth = lerp(1.6, 5.5, (bx + quarter) / quarter);
+      top = 3.8;
+    } else {
+      // Play at the far end: stroll out past his box, in no hurry.
+      depth = lerp(5.5, 16.5, clamp(bx / PITCH_HALF_X));
+      top = 1.9;
+    }
+    // Shade across with the ball, but never wider than the angle he is
+    // covering — a keeper on his line barely moves off centre.
+    const reach = 2.2 + depth * 0.55;
+    return { x: k.side * (PITCH_HALF_X - depth), z: clamp(ball.z * 0.42, -reach, reach), top };
+  }
+
+  function pickBallTarget() {
+    if (match.timer > match.nextShot && Math.abs(ball.x) > 12) {
+      // An attempt on the goal the ball is already nearest. The far end is off
+      // frame and belongs to the other lot, so an attempt there is always kept
+      // out, and most of the shooting is left to the end that can be seen.
+      const side = ball.x >= 0 ? 1 : -1;
+      if (side === VISIBLE_GOAL || rng.chance(0.4)) {
+        const onTarget = side === VISIBLE_GOAL && rng.chance(0.62);
+        ball.attack = side;
+        ball.shot = true;
+        ball.onTarget = onTarget;
+        ball.tx = side * (PITCH_HALF_X + 0.6);
+        ball.tz = onTarget
+          ? rng.range(-GOAL_HALF_W * 0.82, GOAL_HALF_W * 0.82)
+          : (rng.chance() ? 1 : -1) * rng.range(GOAL_HALF_W * 1.5, 13);
+        ball.speed = 26 + rng.skew(1.3) * 15;
+        return;
+      }
+      // Held up at the wrong end. Play on, and look again shortly.
+      match.nextShot = match.timer + rng.range(2.5, 6);
+    }
+    // Ordinary play. Targets are drawn from zones weighted by how far they
+    // are from where the ball already is, so possession genuinely travels
+    // end to end and drags the outfield off the frame and back again.
+    // (Mirroring the ball about the halfway line does not work: near x=0 it
+    // is a fixed point and play stalls in midfield.)
+    ball.shot = false;
+    const zones = [-44, -24, -6, 12, 30, 46];
+    const weights = zones.map((zx) => 0.1 + (Math.abs(zx - ball.x) / 105) * 2.6 + (Math.abs(zx) / 46) * 0.7);
+    ball.tx = clamp(rng.weighted(zones, weights) + rng.jitter(10), -50, 50);
+    ball.tz = clamp(ball.z + rng.jitter(26), -31, 31);
+    ball.speed = 11 + rng.skew(1.4) * 19;
+  }
+
+  function scoreGoal() {
+    match.mode = 'celebrate';
+    match.celebrateTotal = rng.range(6, 8.5);
+    match.celebrateFor = match.celebrateTotal;
+    match.scorer = -ball.attack; // the side attacking that goal
+    match.scorerTeam = SUPPORT; // which, by construction, is the majority
+    match.rally = { x: ball.attack * (PITCH_HALF_X - 15), z: rng.range(15, 27) };
+    ball.shot = false;
+    ball.x = ball.attack * (PITCH_HALF_X - 0.6);
+    ball.z = clamp(ball.z, -GOAL_HALF_W, GOAL_HALF_W);
+  }
+
+  function kickOff() {
+    match.mode = 'play';
+    match.timer = 0;
+    match.nextShot = rng.range(9, 20);
+    ball.x = 0;
+    ball.z = 0;
+    ball.speed = 14;
+    pickBallTarget();
+  }
+
+  function stepBall(dt) {
     const dx = ball.tx - ball.x;
     const dz = ball.tz - ball.z;
     const dist = Math.hypot(dx, dz) || 1e-6;
-    if (dist < 1.6) {
-      ball.tx = clamp(ball.x + rng.jitter(30), -50, 20);
-      ball.tz = clamp(ball.z + rng.jitter(26), -30, 30);
-      ball.speed = 11 + rng.skew(1.5) * 16;
-    } else {
-      ball.x += (dx / dist) * ball.speed * dt;
-      ball.z += (dz / dist) * ball.speed * dt;
+    const stepLen = ball.speed * dt;
+    if (stepLen >= dist) {
+      ball.x = ball.tx;
+      ball.z = ball.tz;
+      if (ball.shot) {
+        if (ball.onTarget) {
+          scoreGoal();
+        } else {
+          // Wide: goal kick, and nobody shoots again for a while.
+          ball.shot = false;
+          ball.x = ball.attack * (PITCH_HALF_X - 6);
+          ball.z = clamp(ball.z * 0.4, -14, 14);
+          match.nextShot = match.timer + rng.range(6, 15);
+          pickBallTarget();
+        }
+        return;
+      }
+      pickBallTarget();
+      return;
     }
+    ball.x += (dx / dist) * stepLen;
+    ball.z += (dz / dist) * stepLen;
+  }
 
+  /**
+   * How loud each support is, tracked separately. Through ordinary play the two
+   * move together — both lift as the ball nears a goal, both spike as a shot
+   * goes in — and a goal then splits them completely: one end at full voice,
+   * the other silent, because the only thing a conceding end does is sit down.
+   * Noise falls away far more slowly than it rises, which is what a roar
+   * actually does; a conceded goal is the one exception.
+   */
+  function stepExcitement(dt) {
+    const near = clamp((Math.abs(ball.x) - 26) / (PITCH_HALF_X - 26));
+    let target = 0.46 + 0.26 * near * near;
+    if (ball.shot) target = Math.max(target, 0.76);
+    const celebrating = match.mode === 'celebrate';
+    let roar = target;
+    if (celebrating) {
+      const elapsed = match.celebrateTotal - match.celebrateFor;
+      roar = elapsed < 2.6 ? 1 : lerp(0.94, 0.5, clamp((elapsed - 2.6) / 4.2));
+    }
+    for (let f = 0; f < 2; f++) {
+      const scored = f === match.scorerTeam;
+      const tgt = celebrating ? (scored ? roar : 0) : target;
+      const e = match.excites[f];
+      // A conceded goal takes a stand's noise away inside a second. Nothing
+      // else in the match falls anywhere near that fast.
+      const rate = tgt > e ? 0.15 : celebrating && !scored ? 0.075 : 0.011;
+      match.excites[f] = e + (tgt - e) * rate;
+    }
+    match.excite = Math.max(match.excites[0], match.excites[1]);
+    // Everyone bounces quicker when the noise goes up.
+    match.jumpPhase += dt * (4.8 + 6.2 * match.excite);
+  }
+
+  function stepPlayers(dt, t) {
+    const celebrating = match.mode === 'celebrate';
     for (const pl of players) {
-      // Hold shape, chase the ball, drift on noise — three weights, so the
-      // team moves as a body instead of eleven independent dots.
-      const wob = noise.fbm2D(pl.wander + t * 0.22, pl.wander * 0.4 - t * 0.17, { octaves: 2 });
-      const wob2 = noise.fbm2D(pl.wander * 0.7 - t * 0.19, pl.wander + t * 0.24, { octaves: 2 });
-      const tx = lerp(pl.home.x + wob * 13, ball.x, pl.pull) + wob2 * 4;
-      const tz = lerp(pl.home.z + wob2 * 11, ball.z, pl.pull) + wob * 4;
+      let tx;
+      let tz;
+      let top = pl.top;
+
+      if (pl.keeper) {
+        const k = keeperTarget(pl);
+        tx = k.x;
+        tz = k.z;
+        top = k.top;
+      } else if (celebrating && pl.side === match.scorer) {
+        // Off toward the corner in a loose knot, not a neat circle.
+        tx = match.rally.x + Math.cos(pl.phase) * 8;
+        tz = match.rally.z + Math.sin(pl.phase) * 8;
+        top = pl.top * 1.2;
+      } else if (celebrating) {
+        tx = pl.home.x * 0.65;
+        tz = pl.home.z * 0.65;
+        top = pl.top * 0.4;
+      } else {
+        // Hold shape, chase the ball, drift on noise — three weights, so the
+        // team moves as a body instead of ten independent dots.
+        const wob = noise.fbm2D(pl.wander + t * 0.22, pl.wander * 0.4 - t * 0.17, { octaves: 2 });
+        const wob2 = noise.fbm2D(pl.wander * 0.7 - t * 0.19, pl.wander + t * 0.24, { octaves: 2 });
+        tx = lerp(pl.home.x + wob * 13, ball.x, pl.pull) + wob2 * 4;
+        tz = lerp(pl.home.z + wob2 * 11, ball.z, pl.pull) + wob * 4;
+      }
+
       const ax = tx - pl.x;
       const az = tz - pl.z;
       const ad = Math.hypot(ax, az) || 1e-6;
-      const want = Math.min(pl.top, ad * 1.4);
+      const want = Math.min(top, ad * 1.4);
       pl.vx = lerp(pl.vx, (ax / ad) * want, 0.08);
       pl.vz = lerp(pl.vz, (az / ad) * want, 0.08);
       pl.x += pl.vx * dt;
       pl.z += pl.vz * dt;
       pl.speed = Math.hypot(pl.vx, pl.vz);
     }
+  }
+
+  function stepPlay(dt, t) {
+    match.timer += dt;
+    if (match.mode === 'play') {
+      stepBall(dt);
+    } else {
+      match.celebrateFor -= dt;
+      if (match.celebrateFor <= 0) kickOff();
+    }
+    stepExcitement(dt);
+    stepPlayers(dt, t);
   }
 
   /* ------------------------- static plate helpers ----------------------- */
@@ -845,19 +1079,19 @@ export default function sketch(p, ctx) {
       const gx = sgn * X;
       const goalW = 3.66;
       const bar = withAlpha(shade('#fbfdf8', 0.8), 0.95);
-      line3(v3(gx, 0, -goalW), v3(gx, 2.44, -goalW), bar, 0.16);
-      line3(v3(gx, 0, goalW), v3(gx, 2.44, goalW), bar, 0.16);
-      line3(v3(gx, 2.44, -goalW), v3(gx, 2.44, goalW), bar, 0.16);
+      line3(v3(gx, 0, -goalW), v3(gx, 2.44, -goalW), bar, 0.26);
+      line3(v3(gx, 0, goalW), v3(gx, 2.44, goalW), bar, 0.26);
+      line3(v3(gx, 2.44, -goalW), v3(gx, 2.44, goalW), bar, 0.26);
       const back = gx + sgn * 1.9;
       const net = withAlpha(shade('#e4ebe4', 0.7), 0.24);
       for (let i = 0; i <= 8; i++) {
         const z = lerp(-goalW, goalW, i / 8);
-        line3(v3(gx, 2.44, z), v3(back, 1.5, z), net, 0.05);
-        line3(v3(back, 1.5, z), v3(back, 0, z), net, 0.05);
+        line3(v3(gx, 2.44, z), v3(back, 1.5, z), net, 0.07);
+        line3(v3(back, 1.5, z), v3(back, 0, z), net, 0.07);
       }
       for (let i = 1; i < 4; i++) {
         const y = (i / 4) * 1.5;
-        line3(v3(back, y, -goalW), v3(back, y, goalW), net, 0.05);
+        line3(v3(back, y, -goalW), v3(back, y, goalW), net, 0.07);
       }
     }
   }
@@ -1218,28 +1452,61 @@ export default function sketch(p, ctx) {
    * The whole crowd, far bands to near, in one pass. Seats rise on a squared
    * sine so the ascent is quick and the hang is slow — a jump, not a wobble.
    */
+  /**
+   * Vertical offset of every seat this frame. Computed once and reused by all
+   * three passes — the body, the gap it leaves behind, and the highlight —
+   * which is also a third of the sin calls the passes used to make separately.
+   */
+  function computeLift() {
+    const ph = match.jumpPhase;
+    // Amplitude and coherence are both read off a support's own noise, so the
+    // seam in the seating becomes a seam in the movement: at a goal one mass
+    // goes up and the other is left sitting in its own colours, which is the
+    // only moment the two blocks are legible as two blocks.
+    //
+    // Ordinary cheering is incoherent — everyone on their own beat. A goal
+    // pulls that end onto one beat and it leaps together, which is what makes
+    // the eruption read as a step change rather than just more of the same.
+    const amp = [0, 0];
+    const inv = [0, 0];
+    for (let f = 0; f < 2; f++) {
+      const e = match.excites[f];
+      amp[f] = 0.72 + 1.25 * e;
+      inv[f] = 1 - clamp((e - 0.58) / 0.42) * 0.6;
+    }
+    for (let s = 0; s < LIFT.length; s++) {
+      const f = FAN[s];
+      const gate = match.excites[f] - SGATE[s];
+      if (gate <= 0) {
+        LIFT[s] = 0;
+        continue;
+      }
+      const j = Math.sin(SPHASE[s] * inv[f] + ph * SRATE[s]);
+      // Squared sine: a quick launch and a slow hang, the shape of a jump.
+      LIFT[s] = j > 0 ? j * j * SAMP[s] * amp[f] * (gate < 0.14 ? gate / 0.14 : 1) : 0;
+    }
+  }
+
   function rasterCrowd(t) {
+    computeLift();
     crowdBuf.fill(0);
     for (const band of drawBands) {
       for (const [key, idxs] of band.buckets) {
         const col = SEAT_COLOR32[key];
         for (let i = 0; i < idxs.length; i++) {
           const s = idxs[i];
-          const j = Math.max(0, Math.sin(SPHASE[s] + t * 5.4));
-          rect32(SX[s], SY[s] - j * j * SAMP[s], SW[s], SH[s], col);
+          rect32(SX[s], SY[s] - LIFT[s], SW[s], SH[s], col);
         }
       }
       for (let i = 0; i < band.dark.length; i++) {
         const s = band.dark[i];
-        const j = Math.max(0, Math.sin(SPHASE[s] + t * 5.4));
-        const lift = j * j * SAMP[s];
+        const lift = LIFT[s];
         if (lift < 1) continue;
         rect32(SX[s], SY[s] - lift + SH[s], SW[s], Math.min(lift, SH[s] * 1.3), SEAT_DARK32);
       }
       for (let i = 0; i < band.spark.length; i++) {
         const s = band.spark[i];
-        const j = Math.max(0, Math.sin(SPHASE[s] + t * 5.4));
-        rect32(SX[s], SY[s] - j * j * SAMP[s], SW[s] * 0.6, Math.max(1, SH[s] * 0.3), SPARK32);
+        rect32(SX[s], SY[s] - LIFT[s], SW[s] * 0.6, Math.max(1, SH[s] * 0.3), SPARK32);
       }
     }
     crowdG.drawingContext.putImageData(crowdImg, 0, 0);
@@ -1251,9 +1518,11 @@ export default function sketch(p, ctx) {
     p.background(BG);
 
     drawPitch();
+    // Apron before markings: the goal net reaches past the goal line, and the
+    // apron ring starts exactly on it, so drawing it after erased both goals.
+    drawApron();
     drawMarkings();
     drawPlayers(t);
-    drawApron();
 
     // The crowd lands as one blit; the tier structure is then laid over it,
     // which is also what makes each fascia occlude the rows behind it.
@@ -1277,9 +1546,18 @@ export default function sketch(p, ctx) {
     SW.length = 0;
     SH.length = 0;
     SPHASE.length = 0;
+    SRATE.length = 0;
     SAMP.length = 0;
+    SGATE.length = 0;
+    SFAN.length = 0;
+    FAN_COUNT[0] = 0;
+    FAN_COUNT[1] = 0;
     LIT_POLY = litPatch();
     buildSeats();
+    LIFT = new Float32Array(SX.length);
+    FAN = Uint8Array.from(SFAN);
+    // Whoever brought the most people gets the end the camera is pointed at.
+    SUPPORT = FAN_COUNT[0] >= FAN_COUNT[1] ? 0 : 1;
     // Far bands first, so a nearer row can overlap the one behind it.
     drawBands = bands
       .filter((b) => b.n > 0)

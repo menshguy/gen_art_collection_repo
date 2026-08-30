@@ -103,6 +103,85 @@ html, body {
   color: var(--dim);
 }
 
+/* --- version drawer -------------------------------------------------- */
+/* Every artwork's history hangs under its own nav item. It stays collapsed
+   until asked for, and opens by itself when an archived version is loaded so
+   the current selection is never hidden behind a closed drawer. */
+
+.artwork-item { position: relative; }
+
+.version-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 3px 16px 5px 18px;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: #5c605e;
+  text-align: left;
+  cursor: pointer;
+}
+
+.version-toggle:hover { color: var(--dim); }
+
+.version-toggle .chev {
+  display: inline-block;
+  font-size: 9px;
+  transition: transform 120ms ease;
+}
+
+.version-toggle[aria-expanded="true"] .chev { transform: rotate(90deg); }
+
+.version-drawer {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 4px;
+  /* A hairline ties the stack of versions back to the artwork above it. */
+  margin-left: 22px;
+  border-left: 1px solid var(--line);
+}
+
+.version-link {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 10px 4px 10px;
+  text-decoration: none;
+  font-size: 11px;
+  color: var(--dim);
+  border-left: 2px solid transparent;
+  margin-left: -1px;
+}
+
+.version-link:hover { background: #202325; color: var(--text); }
+
+.version-link.active {
+  color: var(--text);
+  background: #202325;
+  border-left-color: var(--accent);
+}
+
+.version-link .v { font-variant-numeric: tabular-nums; }
+
+.version-link .tag {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.version-link .note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: #5c605e;
+}
+
 .sidebar-foot {
   padding: 10px 16px;
   border-top: 1px solid var(--line);
@@ -123,7 +202,8 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 10px 16px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
@@ -154,21 +234,53 @@ html, body {
 .badge[data-engine="p5"] { color: var(--p5); box-shadow: inset 0 0 0 1px currentColor; }
 .badge[data-engine="three"] { color: var(--three); box-shadow: inset 0 0 0 1px currentColor; }
 
-.seed-field {
+/* Loud only when it needs to be: the latest version is the normal state, so
+   only an archived one is worth colouring. */
+.badge.version { font-variant-numeric: tabular-nums; text-transform: none; }
+.badge.version[data-latest="false"] {
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+.seed-field,
+.size-field {
   display: flex;
   align-items: center;
   gap: 6px;
   color: var(--dim);
 }
 
-#seed-input {
-  width: 96px;
+.tb-size { gap: 6px; }
+
+.size-x { color: var(--dim); }
+
+#seed-input,
+#width-input,
+#height-input,
+#aspect-select {
   padding: 4px 6px;
   border: 1px solid var(--line);
   border-radius: 3px;
   background: #101112;
   color: var(--text);
   font: inherit;
+}
+
+#seed-input { width: 96px; }
+
+#width-input,
+#height-input { width: 68px; }
+
+#aspect-select { cursor: pointer; }
+
+#size-reset:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+#size-reset:disabled:hover {
+  border-color: var(--line);
+  background: #101112;
 }
 
 #toolbar button,
@@ -200,22 +312,22 @@ html, body {
   overflow: hidden;
 }
 
+/* main.js gives this box an explicit fitted size (see fitStage): percentage
+   heights cannot be relied on here, and a tall or very wide canvas has to be
+   scaled down to fit the stage rather than cropped by it. */
 #artwork-root {
   display: flex;
-  max-width: 100%;
-  max-height: 100%;
   line-height: 0;
   box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
 }
 
-/* The canvas is always created at the artwork's real dimensions and scaled
-   down by CSS, so what you see in the studio is what `npm run render` writes. */
+/* The canvas is always created at the artwork's real dimensions and scaled by
+   CSS to fill that box, so what you see in the studio is what
+   `npm run render` writes — same framing, fewer pixels. */
 #artwork-root canvas {
   display: block;
-  width: auto !important;
-  height: auto !important;
-  max-width: 100%;
-  max-height: 100%;
+  width: 100% !important;
+  height: 100% !important;
 }
 
 #pane-container {
@@ -259,14 +371,19 @@ body.capture #stage {
   overflow: visible;
 }
 
+/* A capture is never fitted: the canvas keeps its exact pixel dimensions. */
 body.capture #artwork-root {
   display: block;
+  width: auto;
+  height: auto;
   max-width: none;
   max-height: none;
   box-shadow: none;
 }
 
 body.capture #artwork-root canvas {
+  width: auto !important;
+  height: auto !important;
   max-width: none;
   max-height: none;
 }
